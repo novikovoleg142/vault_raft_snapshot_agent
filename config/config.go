@@ -14,6 +14,8 @@ type Configuration struct {
 	Address         string      `json:"addr"`
 	Retain          int64       `json:"retain"`
 	Frequency       string      `json:"frequency"`
+	Skip_ssl        bool        `json:"skip_ssl_verify"`
+	Encrypt_pass    string      `json:"file_encryption_pass"`
 	AWS             S3Config    `json:"aws_storage"`
 	Local           LocalConfig `json:"local_storage"`
 	GCP             GCPConfig   `json:"google_storage"`
@@ -55,6 +57,7 @@ type S3Config struct {
 	SSE                bool   `json:"s3_server_side_encryption"`
 	StaticSnapshotName string `json:"s3_static_snapshot_name"`
 	S3ForcePathStyle   bool   `json:"s3_force_path_style"`
+	DisableSSL         bool   `json:"s3_disable_ssl"`
 }
 
 // ReadConfig reads the configuration file

@@ -2,14 +2,18 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/Lucretius/vault_raft_snapshot_agent/config"
-	"github.com/Lucretius/vault_raft_snapshot_agent/snapshot_agent"
+	"github.com/novikovoleg142/vault_raft_snapshot_agent/config"
+	"github.com/novikovoleg142/vault_raft_snapshot_agent/crypto"
+
+	"github.com/novikovoleg142/vault_raft_snapshot_agent/snapshot_agent"
 )
 
 func listenForInterruptSignals() chan bool {
@@ -42,14 +46,17 @@ func main() {
 
 	if err != nil {
 		frequency = time.Hour
+		log.Println("Cannot parse time frequency, set 1 hour")
 	}
 
 	for {
 		if snapshotter.TokenExpiration.Before(time.Now()) {
 			switch c.VaultAuthMethod {
 			case "k8s":
+				log.Println("Set k8s auth")
 				snapshotter.SetClientTokenFromK8sAuth(c)
 			default:
+				log.Println("Set Approle auth")
 				snapshotter.SetClientTokenFromAppRole(c)
 			}
 		}
@@ -68,21 +75,40 @@ func main() {
 				log.Fatalln("Unable to generate snapshot", err.Error())
 			}
 			now := time.Now().UnixNano()
-			if c.Local.Path != "" {
-				snapshotPath, err := snapshotter.CreateLocalSnapshot(&snapshot, c, now)
-				logSnapshotError("local", snapshotPath, err)
-			}
 			if c.AWS.Bucket != "" {
-				snapshotPath, err := snapshotter.CreateS3Snapshot(&snapshot, c, now)
-				logSnapshotError("aws", snapshotPath, err)
-			}
-			if c.GCP.Bucket != "" {
-				snapshotPath, err := snapshotter.CreateGCPSnapshot(&snapshot, c, now)
-				logSnapshotError("gcp", snapshotPath, err)
-			}
-			if c.Azure.ContainerName != "" {
-				snapshotPath, err := snapshotter.CreateAzureSnapshot(&snapshot, c, now)
-				logSnapshotError("azure", snapshotPath, err)
+				if c.Encrypt_pass != "" {
+					log.Println("Encrypting backup file...")
+					crypto, err := crypto.NewCrypto([]byte(c.Encrypt_pass))
+					if err != nil {
+						log.Fatalln("Unable to create crypt instance", err.Error())
+					}
+					var b bytes.Buffer
+					err = crypto.Encrypt(&snapshot, &b)
+					if err != nil {
+						log.Fatalln("Unable to crypt snapshot", err.Error())
+					}
+					var w []byte
+					w = b.Bytes()
+					err = os.WriteFile("/tmp/dat1.snap.gpg", w, 0644)
+					if err != nil {
+						fmt.Println("Unable to write temp crypt file:", err)
+					}
+					file, err := os.Open("/tmp/dat1.snap.gpg")
+					if err != nil {
+						fmt.Println("Unable to open temp crypt file:", err)
+						os.Exit(1)
+					}
+					defer file.Close()
+					var r io.ReadWriter
+					r = file
+					snapshotPath, err := snapshotter.CreateS3Snapshot(r, c, now, true)
+					logSnapshotError("aws", snapshotPath, err)
+				} else {
+					snapshotPath, err := snapshotter.CreateS3Snapshot(&snapshot, c, now, false)
+					logSnapshotError("aws", snapshotPath, err)
+				}
+			} else {
+				log.Fatalln("Unable to find S3 bucket name, please set it in config. Terminating...")
 			}
 		}
 		select {

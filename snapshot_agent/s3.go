@@ -7,22 +7,27 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Lucretius/vault_raft_snapshot_agent/config"
+	"github.com/novikovoleg142/vault_raft_snapshot_agent/config"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
 // CreateS3Snapshot writes snapshot to s3 location
-func (s *Snapshotter) CreateS3Snapshot(reader io.ReadWriter, config *config.Configuration, currentTs int64) (string, error) {
+func (s *Snapshotter) CreateS3Snapshot(reader io.ReadWriter, config *config.Configuration, currentTs int64, encrypted bool) (string, error) {
 	keyPrefix := "raft_snapshots"
 	if config.AWS.KeyPrefix != "" {
 		keyPrefix = config.AWS.KeyPrefix
 	}
+	extension := ""
+	if encrypted {
+		extension = ".pgp"
+	}
 
 	input := &s3manager.UploadInput{
 		Bucket:               &config.AWS.Bucket,
-		Key:                  aws.String(fmt.Sprintf("%s/raft_snapshot-%d.snap", keyPrefix, currentTs)),
+		Key:                  aws.String(fmt.Sprintf("%s/raft_snapshot-%d.snap"+extension, keyPrefix, currentTs)),
 		Body:                 reader,
 		ServerSideEncryption: nil,
 	}
@@ -32,7 +37,7 @@ func (s *Snapshotter) CreateS3Snapshot(reader io.ReadWriter, config *config.Conf
 	}
 
 	if config.AWS.StaticSnapshotName != "" {
-		input.Key = aws.String(fmt.Sprintf("%s/%s.snap", keyPrefix, config.AWS.StaticSnapshotName))
+		input.Key = aws.String(fmt.Sprintf("%s/%s.snap"+extension, keyPrefix, config.AWS.StaticSnapshotName))
 	}
 
 	o, err := s.Uploader.Upload(input)
